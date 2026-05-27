@@ -1,0 +1,42 @@
+// Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// 版本表
+model Version {
+  /// 唯一标识
+  id     String @id
+  /// 名称
+  name   String
+  /// 状态：0 未启用，1 启用
+  status Int    @default(0)
+
+  @@map("version")
+}
+
+/// 分类表
+model Types {
+  /// 唯一标识
+  id         String  @id
+  /// 父级标识
+  parentId   String?
+  /// 编码
+  code       String
+  /// 名称
+  name       String
+  /// 备注
+  note       String  @default("")
+  /// 排序序号
+  orderIndex Int     @default(0) @map("index")
+  /// 状态：0 废弃，1 启用
+  status     Int     @default(1)
+
+  @@map("types")
+}
