@@ -24,6 +24,13 @@ export function recordToEditRow(record: VersionRecord): VersionEditRow {
   };
 }
 
+/** 生成版本下拉展示 label：name（启用状态） */
+export function buildVersionOptionLabel(record: VersionRecord): string {
+  const name = record.name.trim();
+  const enabledStatus = numberToEnabledStatus(record.status);
+  return name ? `${name}（${enabledStatus}）` : `（${enabledStatus}）`;
+}
+
 /** 是否为未落库的新增行 */
 export function isTempVersionRow(row: VersionEditRow): boolean {
   return row.id.startsWith('temp_');
@@ -60,6 +67,16 @@ export function enableVersionRow(row: VersionEditRow): Promise<VersionRecord> {
     data: {
       name: row.name.trim(),
       status: 1,
+    },
+  }) as Promise<VersionRecord>;
+}
+
+/** 停用版本（PUT /version/:id，status=0） */
+export function disableVersionRow(row: VersionEditRow): Promise<VersionRecord> {
+  return request.put(`/version/${row.id}`, {
+    data: {
+      name: row.name.trim(),
+      status: 0,
     },
   }) as Promise<VersionRecord>;
 }

@@ -1,9 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+
 import { CreateTypesDto } from './dto/create-types.dto';
 import { QueryTypesDto } from './dto/query-types.dto';
 import { UpdateTypesDto } from './dto/update-types.dto';
-import { TypesService, type TypesRecord } from './types.service';
+import { type TypesRecord, TypesService } from './types.service';
 
 @ApiTags('分类')
 @Controller('types')
@@ -24,10 +25,7 @@ export class TypesController {
 
   @Put(':id')
   @ApiOperation({ summary: '更新分类' })
-  update(
-    @Param('id') id: string,
-    @Body() body: UpdateTypesDto,
-  ): Promise<TypesRecord> {
+  update(@Param('id') id: string, @Body() body: UpdateTypesDto): Promise<TypesRecord> {
     return this.typesService.update(id, body.data);
   }
 

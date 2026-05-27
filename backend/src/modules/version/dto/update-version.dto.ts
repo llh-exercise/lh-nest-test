@@ -1,13 +1,6 @@
-import { Type } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-  ValidateNested,
-} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 
 export class UpdateVersionDataDto {
   @ApiPropertyOptional({ description: '版本名称' })

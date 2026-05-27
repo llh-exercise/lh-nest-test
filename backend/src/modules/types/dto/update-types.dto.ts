@@ -1,14 +1,6 @@
-import { Type } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-  ValidateNested,
-} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
 
 export class UpdateTypesDataDto {
   @ApiPropertyOptional({ description: '父级标识，为空表示顶级分类' })

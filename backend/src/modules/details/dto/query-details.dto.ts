@@ -1,5 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class QueryDetailsDto {
   @ApiPropertyOptional({ description: '分类标识，按分类筛选明细' })

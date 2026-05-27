@@ -1,9 +1,5 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateVersionDataDto } from './dto/create-version.dto';
 import { UpdateVersionDataDto } from './dto/update-version.dto';
@@ -47,7 +43,7 @@ export class VersionService implements OnModuleInit {
   /** 生成下一个流水号 id */
   private async generateNextId(): Promise<string> {
     const rows = await this.prisma.version.findMany({
-      select: { id: true },
+      select: { id: true }
     });
 
     let max = 0;
@@ -62,16 +58,13 @@ export class VersionService implements OnModuleInit {
   }
 
   /** 校验版本名称是否重复 */
-  private async assertNameUnique(
-    name: string,
-    excludeId?: string,
-  ): Promise<void> {
+  private async assertNameUnique(name: string, excludeId?: string): Promise<void> {
     const trimmedName = name.trim();
     const duplicate = await this.prisma.version.findFirst({
       where: {
         name: trimmedName,
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
+        ...(excludeId ? { id: { not: excludeId } } : {})
+      }
     });
 
     if (duplicate) {
@@ -90,13 +83,13 @@ export class VersionService implements OnModuleInit {
       data: {
         id,
         name,
-        status,
+        status
       },
       select: {
         id: true,
         name: true,
-        status: true,
-      },
+        status: true
+      }
     });
   }
 
@@ -105,18 +98,18 @@ export class VersionService implements OnModuleInit {
       select: {
         id: true,
         name: true,
-        status: true,
+        status: true
       },
       orderBy: {
-        id: 'asc',
-      },
+        id: 'asc'
+      }
     });
   }
 
   /** 更新版本记录 */
   async update(id: string, data: UpdateVersionDataDto): Promise<VersionRecord> {
     const existing = await this.prisma.version.findUnique({
-      where: { id },
+      where: { id }
     });
 
     if (!existing) {
@@ -139,15 +132,15 @@ export class VersionService implements OnModuleInit {
       select: {
         id: true,
         name: true,
-        status: true,
-      },
+        status: true
+      }
     });
   }
 
   /** 删除版本记录 */
   async remove(id: string): Promise<void> {
     const existing = await this.prisma.version.findUnique({
-      where: { id },
+      where: { id }
     });
 
     if (!existing) {
@@ -155,7 +148,7 @@ export class VersionService implements OnModuleInit {
     }
 
     await this.prisma.version.delete({
-      where: { id },
+      where: { id }
     });
   }
 }

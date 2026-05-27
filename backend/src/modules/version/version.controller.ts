@@ -1,8 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+
 import { CreateVersionDto } from './dto/create-version.dto';
 import { UpdateVersionDto } from './dto/update-version.dto';
-import { VersionService, type VersionRecord } from './version.service';
+import { type VersionRecord, VersionService } from './version.service';
 
 @ApiTags('版本')
 @Controller('version')
@@ -23,10 +24,7 @@ export class VersionController {
 
   @Put(':id')
   @ApiOperation({ summary: '更新版本' })
-  update(
-    @Param('id') id: string,
-    @Body() body: UpdateVersionDto,
-  ): Promise<VersionRecord> {
+  update(@Param('id') id: string, @Body() body: UpdateVersionDto): Promise<VersionRecord> {
     return this.versionService.update(id, body.data);
   }
 

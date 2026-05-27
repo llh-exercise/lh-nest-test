@@ -1,13 +1,8 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
 import { FastifyReply } from 'fastify';
-import { ApiResponse } from '../interfaces/api-response.interface';
+
 import { ApiBusinessException } from '../exceptions/api-business.exception';
+import { ApiResponse } from '../interfaces/api-response.interface';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -39,7 +34,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const body: ApiResponse<null> = {
       code: status,
       data: null,
-      msg,
+      msg
     };
 
     void reply.status(status).send(body);

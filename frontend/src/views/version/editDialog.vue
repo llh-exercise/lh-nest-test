@@ -10,11 +10,11 @@
         <div class="version-edit-dialog__toolbar-left">
           <el-button type="primary" @click="handleAdd">新增</el-button>
           <el-button
-            :disabled="enableDisabled"
-            :loading="enabling"
-            @click="handleEnable"
+            :disabled="statusActionDisabled"
+            :loading="statusToggling"
+            @click="handleToggleStatus"
           >
-            启用
+            {{ statusActionLabel }}
           </el-button>
         </div>
         <el-button
@@ -50,6 +50,7 @@ import type { VxeGridInstance, VxeGridProps, VxeTableDefines } from 'vxe-table';
 import type { VersionEditRow, VersionRecord } from '@/types/version';
 import {
   deleteVersionRow,
+  disableVersionRow,
   enableVersionRow,
   fetchVersionList,
   isTempVersionRow,
@@ -63,7 +64,7 @@ const emit = defineEmits<{
 }>();
 
 const gridRef = ref<VxeGridInstance<VersionEditRow> | null>(null);
-const enabling = ref(false);
+const statusToggling = ref(false);
 const deleting = ref(false);
 /** 弹窗内是否发生过新增/修改/删除（已落库） */
 const dataChanged = ref(false);
@@ -73,16 +74,16 @@ const selectedRow = ref<VersionEditRow | null>(null);
 const editingNameRowId = ref<string | null>(null);
 let tempIdSeed = 0;
 
-/** 未选中、新增中、已启用时不可点启用 */
-const enableDisabled = computed(() => {
+/** 未选中行时不可切换启用状态 */
+const statusActionDisabled = computed(() => !selectedRow.value);
+
+/** 按选中行状态展示「启用」或「停用」 */
+const statusActionLabel = computed(() => {
   const row = selectedRow.value;
-  if (!row) {
-    return true;
+  if (!row || row.enabledStatus !== '已启用') {
+    return '启用';
   }
-  if (isTempVersionRow(row)) {
-    return true;
-  }
-  return row.enabledStatus === '已启用';
+  return '停用';
 });
 
 /** 未选中，或当前行名称正在编辑时不可点删除 */
@@ -265,14 +266,10 @@ async function handleDelete(): Promise<void> {
   }
 }
 
-async function handleEnable(): Promise<void> {
+async function handleToggleStatus(): Promise<void> {
   const currentRow = getOperatingRow();
   if (!currentRow) {
-    ElMessage.warning('请先选中要启用的行');
-    return;
-  }
-  if (currentRow.enabledStatus === '已启用') {
-    ElMessage.info('当前行已是启用状态');
+    ElMessage.warning('请先选中要操作的行');
     return;
   }
 
@@ -282,21 +279,32 @@ async function handleEnable(): Promise<void> {
     return;
   }
 
-  enabling.value = true;
+  const shouldEnable = currentRow.enabledStatus !== '已启用';
+
+  if (isTempVersionRow(currentRow)) {
+    currentRow.enabledStatus = shouldEnable ? '已启用' : '未启用';
+    if (!shouldEnable) {
+      return;
+    }
+  }
+
+  statusToggling.value = true;
   try {
-    let record;
+    let record: VersionRecord;
     if (isTempVersionRow(currentRow)) {
-      currentRow.enabledStatus = '已启用';
       record = await saveVersionRow(currentRow);
-    } else {
+    } else if (shouldEnable) {
       record = await enableVersionRow(currentRow);
+    } else {
+      record = await disableVersionRow(currentRow);
     }
     Object.assign(currentRow, recordToEditRow(record));
     markDataChanged();
+    ElMessage.success(shouldEnable ? '已启用' : '已停用');
   } catch {
     await reloadTableAfterFailure();
   } finally {
-    enabling.value = false;
+    statusToggling.value = false;
   }
 }
 

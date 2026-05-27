@@ -1,9 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+
+import { type DetailsRecord, DetailsService } from './details.service';
 import { CreateDetailsDto } from './dto/create-details.dto';
 import { QueryDetailsDto } from './dto/query-details.dto';
 import { UpdateDetailsDto } from './dto/update-details.dto';
-import { DetailsService, type DetailsRecord } from './details.service';
 
 @ApiTags('明细')
 @Controller('details')
@@ -24,10 +25,7 @@ export class DetailsController {
 
   @Put(':id')
   @ApiOperation({ summary: '更新明细' })
-  update(
-    @Param('id') id: string,
-    @Body() body: UpdateDetailsDto,
-  ): Promise<DetailsRecord> {
+  update(@Param('id') id: string, @Body() body: UpdateDetailsDto): Promise<DetailsRecord> {
     return this.detailsService.update(id, body.data);
   }
 

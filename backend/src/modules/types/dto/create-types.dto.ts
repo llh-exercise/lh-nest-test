@@ -1,3 +1,4 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsIn,
@@ -7,9 +8,8 @@ import {
   IsString,
   MaxLength,
   Min,
-  ValidateNested,
+  ValidateNested
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateTypesDataDto {
   @ApiPropertyOptional({ description: '父级标识，为空表示顶级分类' })

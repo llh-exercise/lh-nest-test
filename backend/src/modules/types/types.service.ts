@@ -1,10 +1,6 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+
 import { ApiBusinessException } from '../../common/exceptions/api-business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DetailsService } from '../details/details.service';
@@ -44,7 +40,7 @@ const typesSelect = {
   note: true,
   orderIndex: true,
   status: true,
-  restoreIndex: true,
+  restoreIndex: true
 } as const;
 
 @Injectable()
@@ -53,7 +49,7 @@ export class TypesService implements OnModuleInit {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly detailsService: DetailsService,
+    private readonly detailsService: DetailsService
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -72,7 +68,7 @@ export class TypesService implements OnModuleInit {
       note: entity.note,
       index: entity.orderIndex,
       status: entity.status,
-      restoreIndex: entity.restoreIndex,
+      restoreIndex: entity.restoreIndex
     };
   }
 
@@ -136,7 +132,7 @@ export class TypesService implements OnModuleInit {
   /** 校验关联版本是否存在 */
   private async assertVersionExists(versionId: string): Promise<void> {
     const version = await this.prisma.version.findUnique({
-      where: { id: versionId },
+      where: { id: versionId }
     });
 
     if (!version) {
@@ -147,7 +143,7 @@ export class TypesService implements OnModuleInit {
   /** 生成下一个流水号 id */
   private async generateNextId(): Promise<string> {
     const rows = await this.prisma.types.findMany({
-      select: { id: true },
+      select: { id: true }
     });
 
     let max = 9999;
@@ -162,13 +158,10 @@ export class TypesService implements OnModuleInit {
   }
 
   /** 生成同级分类的下一个排序序号 */
-  private async generateNextIndex(
-    versionId: string,
-    parentId: string | null,
-  ): Promise<number> {
+  private async generateNextIndex(versionId: string, parentId: string | null): Promise<number> {
     const rows = await this.prisma.types.findMany({
       where: { versionId, parentId },
-      select: { orderIndex: true },
+      select: { orderIndex: true }
     });
 
     let max = -1;
@@ -185,15 +178,15 @@ export class TypesService implements OnModuleInit {
   private async assertCodeUnique(
     versionId: string,
     code: string,
-    excludeId?: string,
+    excludeId?: string
   ): Promise<void> {
     const trimmedCode = code.trim();
     const duplicate = await this.prisma.types.findFirst({
       where: {
         versionId,
         code: trimmedCode,
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
+        ...(excludeId ? { id: { not: excludeId } } : {})
+      }
     });
 
     if (duplicate) {
@@ -202,16 +195,13 @@ export class TypesService implements OnModuleInit {
   }
 
   /** 校验父级分类是否存在且属于同一版本 */
-  private async assertParentExists(
-    versionId: string,
-    parentId: string | null,
-  ): Promise<void> {
+  private async assertParentExists(versionId: string, parentId: string | null): Promise<void> {
     if (parentId === null) {
       return;
     }
 
     const parent = await this.prisma.types.findUnique({
-      where: { id: parentId },
+      where: { id: parentId }
     });
 
     if (!parent) {
@@ -242,8 +232,7 @@ export class TypesService implements OnModuleInit {
     const name = data.name.trim();
     const note = data.note?.trim() ?? '';
     const status = data.status ?? 1;
-    const orderIndex =
-      data.index ?? (await this.generateNextIndex(versionId, parentId));
+    const orderIndex = data.index ?? (await this.generateNextIndex(versionId, parentId));
 
     await this.assertVersionExists(versionId);
     await this.assertParentExists(versionId, parentId);
@@ -259,9 +248,9 @@ export class TypesService implements OnModuleInit {
         name,
         note,
         orderIndex,
-        status,
+        status
       },
-      select: typesSelect,
+      select: typesSelect
     });
 
     return this.toRecord(entity);
@@ -271,7 +260,7 @@ export class TypesService implements OnModuleInit {
     const list = await this.prisma.types.findMany({
       where: versionId ? { versionId } : undefined,
       select: typesSelect,
-      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }]
     });
 
     return list.map((item) => this.toRecord(item));
@@ -280,7 +269,7 @@ export class TypesService implements OnModuleInit {
   /** 更新分类记录 */
   async update(id: string, data: UpdateTypesDataDto): Promise<TypesRecord> {
     const existing = await this.prisma.types.findUnique({
-      where: { id },
+      where: { id }
     });
 
     if (!existing) {
@@ -333,7 +322,7 @@ export class TypesService implements OnModuleInit {
     const entity = await this.prisma.types.update({
       where: { id },
       data: updateData,
-      select: typesSelect,
+      select: typesSelect
     });
 
     return this.toRecord(entity);
@@ -342,7 +331,7 @@ export class TypesService implements OnModuleInit {
   /** 收集指定分类的全部下级 id（不含自身） */
   private collectDescendantIds(
     parentId: string,
-    rows: { id: string; parentId: string | null }[],
+    rows: { id: string; parentId: string | null }[]
   ): string[] {
     const result: string[] = [];
     const collect = (currentParentId: string): void => {
@@ -358,66 +347,124 @@ export class TypesService implements OnModuleInit {
   }
 
   /** 获取同级分类（按排序序号升序） */
-  private async findSiblings(
-    versionId: string,
-    parentId: string | null,
-  ): Promise<TypesEntity[]> {
+  private async findSiblings(versionId: string, parentId: string | null): Promise<TypesEntity[]> {
     return this.prisma.types.findMany({
       where: { versionId, parentId },
       select: typesSelect,
-      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }]
     });
   }
 
-  /** 计算移动到同级末尾后的 id 顺序 */
-  private buildSiblingOrderMoveToEnd(
-    siblings: TypesEntity[],
-    targetId: string,
-  ): string[] {
-    const others = siblings.filter((item) => item.id !== targetId);
-    const target = siblings.find((item) => item.id === targetId);
-    if (!target) {
-      return siblings.map((item) => item.id);
-    }
-    return [...others.map((item) => item.id), target.id];
+  /** 获取目标在同级启用行中的排序位置（用于保存 restoreIndex） */
+  private getEnabledIndexAmongSiblings(siblings: TypesEntity[], targetId: string): number {
+    const enabledSiblings = siblings
+      .filter((item) => item.status === 1)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    const index = enabledSiblings.findIndex((item) => item.id === targetId);
+    return index >= 0 ? index : 0;
   }
 
-  /** 计算恢复到指定同级位置后的 id 顺序 */
-  private buildSiblingOrderRestore(
-    siblings: TypesEntity[],
-    targetId: string,
-    restoreIndex: number,
-  ): string[] {
-    const others = siblings.filter((item) => item.id !== targetId);
-    const target = siblings.find((item) => item.id === targetId);
-    if (!target) {
-      return siblings.map((item) => item.id);
+  /** 批量启用后：全部启用行在前（restoreIndex 超出启用区间则收敛到最后启用位），废弃行在后 */
+  private buildOrderAfterBulkEnable(siblings: TypesEntity[]): string[] {
+    const enabled = siblings.filter((item) => item.status === 1);
+    const disabled = siblings.filter((item) => item.status === 0);
+    const enabledCount = enabled.length;
+    const lastEnabledIndex = Math.max(0, enabledCount - 1);
+
+    const sortedEnabled = [...enabled].sort((a, b) => {
+      const rawA = a.restoreIndex ?? a.orderIndex;
+      const rawB = b.restoreIndex ?? b.orderIndex;
+      const posA = enabledCount <= 0 ? 0 : Math.min(rawA, lastEnabledIndex);
+      const posB = enabledCount <= 0 ? 0 : Math.min(rawB, lastEnabledIndex);
+      if (posA !== posB) {
+        return posA - posB;
+      }
+      return rawA - rawB || a.orderIndex - b.orderIndex || a.id.localeCompare(b.id);
+    });
+
+    const sortedDisabled = [...disabled].sort(
+      (a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id)
+    );
+
+    return [...sortedEnabled, ...sortedDisabled].map((item) => item.id);
+  }
+
+  /** 同分类下启用行在前、废弃行在后（按当前 orderIndex 稳定排序） */
+  private buildOrderEnabledFirst(siblings: TypesEntity[]): string[] {
+    const enabled = siblings
+      .filter((item) => item.status === 1)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    const disabled = siblings
+      .filter((item) => item.status === 0)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+
+    return [...enabled, ...disabled].map((item) => item.id);
+  }
+
+  /** 构建同级 sibling 分组 key */
+  private buildSiblingGroupKey(versionId: string, parentId: string | null): string {
+    return `${versionId}:${parentId ?? 'null'}`;
+  }
+
+  /** 解析同级 sibling 分组 key */
+  private parseSiblingGroupKey(key: string): {
+    versionId: string;
+    parentId: string | null;
+  } {
+    const separatorIndex = key.indexOf(':');
+    const versionId = key.slice(0, separatorIndex);
+    const parentIdRaw = key.slice(separatorIndex + 1);
+    return {
+      versionId,
+      parentId: parentIdRaw === 'null' ? null : parentIdRaw
+    };
+  }
+
+  /** 同 parent 下启用行在前、废弃行在后重排 */
+  private async reorderTypesWithDisabledAtEnd(
+    versionId: string,
+    parentId: string | null
+  ): Promise<void> {
+    const siblings = await this.findSiblings(versionId, parentId);
+    const orderedIds = this.buildOrderEnabledFirst(siblings);
+
+    if (orderedIds.length === 0) {
+      return;
     }
-    const position = Math.min(Math.max(restoreIndex, 0), others.length);
-    return [
-      ...others.slice(0, position).map((item) => item.id),
-      target.id,
-      ...others.slice(position).map((item) => item.id),
-    ];
+
+    await this.prisma.$transaction(this.buildOrderUpdateOps(orderedIds));
+  }
+
+  /** 同 parent 下批量启用后按 restoreIndex 恢复排序（启用在前、废弃在后） */
+  private async reorderTypesAfterBulkEnable(
+    versionId: string,
+    parentId: string | null
+  ): Promise<void> {
+    const siblings = await this.findSiblings(versionId, parentId);
+    const orderedIds = this.buildOrderAfterBulkEnable(siblings);
+
+    if (orderedIds.length === 0) {
+      return;
+    }
+
+    await this.prisma.$transaction(this.buildOrderUpdateOps(orderedIds));
   }
 
   /** 构建同级排序更新操作（用于批量事务） */
-  private buildOrderUpdateOps(
-    orderedIds: string[],
-  ): Prisma.PrismaPromise<unknown>[] {
+  private buildOrderUpdateOps(orderedIds: string[]): Prisma.PrismaPromise<unknown>[] {
     return orderedIds.map((id, index) =>
       this.prisma.types.update({
         where: { id },
-        data: { orderIndex: index },
-      }),
+        data: { orderIndex: index }
+      })
     );
   }
 
-  /** 废弃分类：级联废弃子集、保存同级位置并移动到同级末尾 */
+  /** 废弃分类：级联废弃子集、保存启用区间位置并重排同级顺序 */
   async disable(id: string): Promise<TypesRecord> {
     const existing = await this.prisma.types.findUnique({
       where: { id },
-      select: typesSelect,
+      select: typesSelect
     });
 
     if (!existing) {
@@ -431,43 +478,50 @@ export class TypesService implements OnModuleInit {
     }
 
     const rows = await this.prisma.types.findMany({
-      select: { id: true, parentId: true },
+      select: { id: true, parentId: true }
     });
     const descendantIds = this.collectDescendantIds(id, rows);
     const typeIdsToCascade = [id, ...descendantIds];
-    const savedIndex = existing.orderIndex;
-    const siblings = await this.findSiblings(
-      existing.versionId,
-      existing.parentId,
-    );
-    const orderedIds = this.buildSiblingOrderMoveToEnd(siblings, id);
+    const typesToDisable = await this.prisma.types.findMany({
+      where: { id: { in: typeIdsToCascade }, status: 1 },
+      select: typesSelect
+    });
 
-    const operations: Prisma.PrismaPromise<unknown>[] = [
-      this.prisma.types.update({
-        where: { id },
-        data: {
-          restoreIndex: savedIndex,
-          status: 0,
-        },
-      }),
-    ];
+    const operations: Prisma.PrismaPromise<unknown>[] = [];
+    const siblingGroups = new Set<string>();
 
-    if (descendantIds.length > 0) {
+    for (const type of typesToDisable) {
+      if (!type.versionId) {
+        continue;
+      }
+      const siblings = await this.findSiblings(type.versionId, type.parentId);
+      const savedIndex = this.getEnabledIndexAmongSiblings(siblings, type.id);
       operations.push(
-        this.prisma.types.updateMany({
-          where: { id: { in: descendantIds } },
-          data: { status: 0 },
-        }),
+        this.prisma.types.update({
+          where: { id: type.id },
+          data: {
+            restoreIndex: savedIndex,
+            status: 0
+          }
+        })
       );
+      siblingGroups.add(this.buildSiblingGroupKey(type.versionId, type.parentId));
     }
 
-    operations.push(...this.buildOrderUpdateOps(orderedIds));
-    await this.prisma.$transaction(operations);
+    if (operations.length > 0) {
+      await this.prisma.$transaction(operations);
+    }
+
+    for (const groupKey of siblingGroups) {
+      const { versionId, parentId } = this.parseSiblingGroupKey(groupKey);
+      await this.reorderTypesWithDisabledAtEnd(versionId, parentId);
+    }
+
     await this.detailsService.disableByTypeIds(typeIdsToCascade);
 
     const entity = await this.prisma.types.findUnique({
       where: { id },
-      select: typesSelect,
+      select: typesSelect
     });
 
     if (!entity) {
@@ -477,11 +531,11 @@ export class TypesService implements OnModuleInit {
     return this.toRecord(entity);
   }
 
-  /** 启用分类：级联启用子集并恢复到废弃前同级位置 */
+  /** 启用分类：级联启用子集并按 restoreIndex 恢复同级顺序 */
   async enable(id: string): Promise<TypesRecord> {
     const existing = await this.prisma.types.findUnique({
       where: { id },
-      select: typesSelect,
+      select: typesSelect
     });
 
     if (!existing) {
@@ -495,34 +549,40 @@ export class TypesService implements OnModuleInit {
     }
 
     const rows = await this.prisma.types.findMany({
-      select: { id: true, parentId: true },
+      select: { id: true, parentId: true }
     });
     const descendantIds = this.collectDescendantIds(id, rows);
     const typeIdsToCascade = [id, ...descendantIds];
-    const restoreIndex = existing.restoreIndex ?? existing.orderIndex;
-    const siblings = await this.findSiblings(
-      existing.versionId,
-      existing.parentId,
-    );
-    const orderedIds = this.buildSiblingOrderRestore(
-      siblings,
-      id,
-      restoreIndex,
-    );
+    const typesToEnable = await this.prisma.types.findMany({
+      where: { id: { in: typeIdsToCascade } },
+      select: typesSelect
+    });
 
-    const operations: Prisma.PrismaPromise<unknown>[] = [
+    const siblingGroups = new Set<string>();
+    for (const type of typesToEnable) {
+      if (!type.versionId) {
+        continue;
+      }
+      siblingGroups.add(this.buildSiblingGroupKey(type.versionId, type.parentId));
+    }
+
+    await this.prisma.$transaction([
       this.prisma.types.updateMany({
-        where: { id: { in: [id, ...descendantIds] } },
-        data: { status: 1 },
-      }),
-      ...this.buildOrderUpdateOps(orderedIds),
-    ];
-    await this.prisma.$transaction(operations);
+        where: { id: { in: typeIdsToCascade } },
+        data: { status: 1 }
+      })
+    ]);
+
+    for (const groupKey of siblingGroups) {
+      const { versionId, parentId } = this.parseSiblingGroupKey(groupKey);
+      await this.reorderTypesAfterBulkEnable(versionId, parentId);
+    }
+
     await this.detailsService.enableByTypeIds(typeIdsToCascade);
 
     const entity = await this.prisma.types.findUnique({
       where: { id },
-      select: typesSelect,
+      select: typesSelect
     });
 
     if (!entity) {
@@ -535,7 +595,7 @@ export class TypesService implements OnModuleInit {
   /** 删除分类记录，存在下级时一并删除 */
   async remove(id: string): Promise<void> {
     const existing = await this.prisma.types.findUnique({
-      where: { id },
+      where: { id }
     });
 
     if (!existing) {
@@ -543,14 +603,14 @@ export class TypesService implements OnModuleInit {
     }
 
     const rows = await this.prisma.types.findMany({
-      select: { id: true, parentId: true },
+      select: { id: true, parentId: true }
     });
     const descendantIds = this.collectDescendantIds(id, rows);
     const idsToDelete = [...descendantIds, id];
 
     await this.detailsService.removeByTypeIds(idsToDelete);
     await this.prisma.types.deleteMany({
-      where: { id: { in: idsToDelete } },
+      where: { id: { in: idsToDelete } }
     });
   }
 }

@@ -1,3 +1,4 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsIn,
@@ -7,9 +8,8 @@ import {
   IsString,
   MaxLength,
   Min,
-  ValidateNested,
+  ValidateNested
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateDetailsDataDto {
   @ApiProperty({ description: '关联分类标识（逻辑外键）' })

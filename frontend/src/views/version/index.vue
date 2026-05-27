@@ -29,7 +29,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { fetchVersionList } from '@/api/version';
+import { fetchVersionList, buildVersionOptionLabel } from '@/api/version';
 import { useVersionStore } from '@/stores/version';
 import type { VersionOption, VersionRecord } from '@/types/version';
 import VersionEditDialog from './editDialog.vue';
@@ -71,7 +71,7 @@ function applyDefaultVersionSelection(list: VersionRecord[]): void {
 function syncVersionOptions(list: VersionRecord[]): void {
   versionOptions.value = list.map((item) => ({
     id: item.id,
-    label: item.name,
+    label: buildVersionOptionLabel(item),
   }));
 }
 

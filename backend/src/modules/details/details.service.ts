@@ -1,10 +1,6 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateDetailsDataDto } from './dto/create-details.dto';
 import { UpdateDetailsDataDto } from './dto/update-details.dto';
@@ -48,7 +44,7 @@ const detailsSelect = {
   unit: true,
   orderIndex: true,
   status: true,
-  restoreIndex: true,
+  restoreIndex: true
 } as const;
 
 @Injectable()
@@ -74,7 +70,7 @@ export class DetailsService implements OnModuleInit {
       unit: entity.unit,
       index: entity.orderIndex,
       status: entity.status,
-      restoreIndex: entity.restoreIndex,
+      restoreIndex: entity.restoreIndex
     };
   }
 
@@ -109,7 +105,7 @@ export class DetailsService implements OnModuleInit {
   /** 生成下一个流水号 id */
   private async generateNextId(): Promise<string> {
     const rows = await this.prisma.details.findMany({
-      select: { id: true },
+      select: { id: true }
     });
 
     let max = 19999;
@@ -127,7 +123,7 @@ export class DetailsService implements OnModuleInit {
   private async generateNextIndex(typeId: string): Promise<number> {
     const rows = await this.prisma.details.findMany({
       where: { typeId },
-      select: { orderIndex: true },
+      select: { orderIndex: true }
     });
 
     let max = -1;
@@ -143,7 +139,7 @@ export class DetailsService implements OnModuleInit {
   /** 校验关联分类是否存在 */
   private async assertTypeExists(typeId: string): Promise<void> {
     const type = await this.prisma.types.findUnique({
-      where: { id: typeId },
+      where: { id: typeId }
     });
 
     if (!type) {
@@ -156,18 +152,14 @@ export class DetailsService implements OnModuleInit {
   }
 
   /** 校验编码在同一分类内是否重复 */
-  private async assertCodeUnique(
-    typeId: string,
-    code: string,
-    excludeId?: string,
-  ): Promise<void> {
+  private async assertCodeUnique(typeId: string, code: string, excludeId?: string): Promise<void> {
     const trimmedCode = code.trim();
     const duplicate = await this.prisma.details.findFirst({
       where: {
         typeId,
         code: trimmedCode,
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
+        ...(excludeId ? { id: { not: excludeId } } : {})
+      }
     });
 
     if (duplicate) {
@@ -202,9 +194,9 @@ export class DetailsService implements OnModuleInit {
         calcRule,
         unit,
         orderIndex,
-        status,
+        status
       },
-      select: detailsSelect,
+      select: detailsSelect
     });
 
     return this.toRecord(entity);
@@ -214,7 +206,7 @@ export class DetailsService implements OnModuleInit {
     const list = await this.prisma.details.findMany({
       where: typeId ? { typeId } : undefined,
       select: detailsSelect,
-      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }]
     });
 
     return list.map((item) => this.toRecord(item));
@@ -223,7 +215,7 @@ export class DetailsService implements OnModuleInit {
   /** 更新明细记录 */
   async update(id: string, data: UpdateDetailsDataDto): Promise<DetailsRecord> {
     const existing = await this.prisma.details.findUnique({
-      where: { id },
+      where: { id }
     });
 
     if (!existing) {
@@ -278,7 +270,7 @@ export class DetailsService implements OnModuleInit {
     const entity = await this.prisma.details.update({
       where: { id },
       data: updateData,
-      select: detailsSelect,
+      select: detailsSelect
     });
 
     return this.toRecord(entity);
@@ -289,59 +281,109 @@ export class DetailsService implements OnModuleInit {
     return this.prisma.details.findMany({
       where: { typeId },
       select: detailsSelect,
-      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }]
     });
   }
 
-  /** 计算移动到同级末尾后的 id 顺序 */
-  private buildSiblingOrderMoveToEnd(
-    siblings: DetailsEntity[],
-    targetId: string,
-  ): string[] {
-    const others = siblings.filter((item) => item.id !== targetId);
-    const target = siblings.find((item) => item.id === targetId);
-    if (!target) {
-      return siblings.map((item) => item.id);
-    }
-    return [...others.map((item) => item.id), target.id];
+  /** 获取目标在同级启用行中的排序位置（用于保存 restoreIndex） */
+  private getEnabledIndexAmongSiblings(siblings: DetailsEntity[], targetId: string): number {
+    const enabledSiblings = siblings
+      .filter((item) => item.status === 1)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    const index = enabledSiblings.findIndex((item) => item.id === targetId);
+    return index >= 0 ? index : 0;
   }
 
-  /** 计算恢复到指定同级位置后的 id 顺序 */
-  private buildSiblingOrderRestore(
+  /**
+   * 解析启用后应插入的同级位置：
+   * restoreIndex 若落在废弃区间（>= 当前其它启用行数量），则取最后一个启用位置
+   */
+  private resolveEnabledRestorePosition(restoreIndex: number, enabledOthersCount: number): number {
+    if (enabledOthersCount <= 0) {
+      return 0;
+    }
+    const lastEnabledIndex = enabledOthersCount - 1;
+    if (restoreIndex >= enabledOthersCount) {
+      return lastEnabledIndex;
+    }
+    return Math.max(0, restoreIndex);
+  }
+
+  /** 启用单条明细后：启用行在前（按 restoreIndex 恢复），废弃行在后 */
+  private buildOrderAfterEnable(
     siblings: DetailsEntity[],
     targetId: string,
-    restoreIndex: number,
+    restoreIndex: number
   ): string[] {
-    const others = siblings.filter((item) => item.id !== targetId);
-    const target = siblings.find((item) => item.id === targetId);
-    if (!target) {
-      return siblings.map((item) => item.id);
-    }
-    const position = Math.min(Math.max(restoreIndex, 0), others.length);
-    return [
-      ...others.slice(0, position).map((item) => item.id),
-      target.id,
-      ...others.slice(position).map((item) => item.id),
+    const othersEnabled = siblings
+      .filter((item) => item.id !== targetId && item.status === 1)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    const othersDisabled = siblings
+      .filter((item) => item.id !== targetId && item.status === 0)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+
+    const position = this.resolveEnabledRestorePosition(restoreIndex, othersEnabled.length);
+    const enabledOrder = [
+      ...othersEnabled.slice(0, position).map((item) => item.id),
+      targetId,
+      ...othersEnabled.slice(position).map((item) => item.id)
     ];
+
+    return [...enabledOrder, ...othersDisabled.map((item) => item.id)];
+  }
+
+  /** 批量启用后：全部启用行在前（restoreIndex 超出启用区间则收敛到最后启用位），废弃行在后 */
+  private buildOrderAfterBulkEnable(siblings: DetailsEntity[]): string[] {
+    const enabled = siblings.filter((item) => item.status === 1);
+    const disabled = siblings.filter((item) => item.status === 0);
+    const enabledCount = enabled.length;
+    const lastEnabledIndex = Math.max(0, enabledCount - 1);
+
+    const sortedEnabled = [...enabled].sort((a, b) => {
+      const rawA = a.restoreIndex ?? a.orderIndex;
+      const rawB = b.restoreIndex ?? b.orderIndex;
+      const posA = enabledCount <= 0 ? 0 : Math.min(rawA, lastEnabledIndex);
+      const posB = enabledCount <= 0 ? 0 : Math.min(rawB, lastEnabledIndex);
+      if (posA !== posB) {
+        return posA - posB;
+      }
+      return rawA - rawB || a.orderIndex - b.orderIndex || a.id.localeCompare(b.id);
+    });
+
+    const sortedDisabled = [...disabled].sort(
+      (a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id)
+    );
+
+    return [...sortedEnabled, ...sortedDisabled].map((item) => item.id);
+  }
+
+  /** 同分类下启用行在前、废弃行在后（按当前 orderIndex 稳定排序） */
+  private buildOrderEnabledFirst(siblings: DetailsEntity[]): string[] {
+    const enabled = siblings
+      .filter((item) => item.status === 1)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    const disabled = siblings
+      .filter((item) => item.status === 0)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+
+    return [...enabled, ...disabled].map((item) => item.id);
   }
 
   /** 构建同级排序更新操作（用于批量事务） */
-  private buildOrderUpdateOps(
-    orderedIds: string[],
-  ): Prisma.PrismaPromise<unknown>[] {
+  private buildOrderUpdateOps(orderedIds: string[]): Prisma.PrismaPromise<unknown>[] {
     return orderedIds.map((id, index) =>
       this.prisma.details.update({
         where: { id },
-        data: { orderIndex: index },
-      }),
+        data: { orderIndex: index }
+      })
     );
   }
 
-  /** 废弃明细：保存同级位置并移动到同级末尾 */
+  /** 废弃明细：保存启用区间位置并移动到废弃区间末尾 */
   async disable(id: string): Promise<DetailsRecord> {
     const existing = await this.prisma.details.findUnique({
       where: { id },
-      select: detailsSelect,
+      select: detailsSelect
     });
 
     if (!existing) {
@@ -351,25 +393,23 @@ export class DetailsService implements OnModuleInit {
       throw new BadRequestException('当前明细已是废弃状态');
     }
 
-    const savedIndex = existing.orderIndex;
     const siblings = await this.findSiblings(existing.typeId);
-    const orderedIds = this.buildSiblingOrderMoveToEnd(siblings, id);
+    const savedIndex = this.getEnabledIndexAmongSiblings(siblings, id);
 
-    const operations: Prisma.PrismaPromise<unknown>[] = [
+    await this.prisma.$transaction([
       this.prisma.details.update({
         where: { id },
         data: {
           restoreIndex: savedIndex,
-          status: 0,
-        },
-      }),
-      ...this.buildOrderUpdateOps(orderedIds),
-    ];
-    await this.prisma.$transaction(operations);
+          status: 0
+        }
+      })
+    ]);
+    await this.reorderDetailsWithDisabledAtEnd(existing.typeId);
 
     const entity = await this.prisma.details.findUnique({
       where: { id },
-      select: detailsSelect,
+      select: detailsSelect
     });
 
     if (!entity) {
@@ -379,11 +419,11 @@ export class DetailsService implements OnModuleInit {
     return this.toRecord(entity);
   }
 
-  /** 启用明细并恢复到废弃前同级位置 */
+  /** 启用明细：恢复到启用区间位置（若 restoreIndex 在废弃区间则放到最后启用位） */
   async enable(id: string): Promise<DetailsRecord> {
     const existing = await this.prisma.details.findUnique({
       where: { id },
-      select: detailsSelect,
+      select: detailsSelect
     });
 
     if (!existing) {
@@ -395,24 +435,20 @@ export class DetailsService implements OnModuleInit {
 
     const restoreIndex = existing.restoreIndex ?? existing.orderIndex;
     const siblings = await this.findSiblings(existing.typeId);
-    const orderedIds = this.buildSiblingOrderRestore(
-      siblings,
-      id,
-      restoreIndex,
-    );
+    const orderedIds = this.buildOrderAfterEnable(siblings, id, restoreIndex);
 
     const operations: Prisma.PrismaPromise<unknown>[] = [
       this.prisma.details.update({
         where: { id },
-        data: { status: 1 },
+        data: { status: 1 }
       }),
-      ...this.buildOrderUpdateOps(orderedIds),
+      ...this.buildOrderUpdateOps(orderedIds)
     ];
     await this.prisma.$transaction(operations);
 
     const entity = await this.prisma.details.findUnique({
       where: { id },
-      select: detailsSelect,
+      select: detailsSelect
     });
 
     if (!entity) {
@@ -425,7 +461,7 @@ export class DetailsService implements OnModuleInit {
   /** 删除明细记录 */
   async remove(id: string): Promise<void> {
     const existing = await this.prisma.details.findUnique({
-      where: { id },
+      where: { id }
     });
 
     if (!existing) {
@@ -433,7 +469,7 @@ export class DetailsService implements OnModuleInit {
     }
 
     await this.prisma.details.delete({
-      where: { id },
+      where: { id }
     });
   }
 
@@ -444,20 +480,14 @@ export class DetailsService implements OnModuleInit {
     }
 
     await this.prisma.details.deleteMany({
-      where: { typeId: { in: typeIds } },
+      where: { typeId: { in: typeIds } }
     });
   }
 
   /** 同分类下启用行在前、废弃行在后重排 */
   private async reorderDetailsWithDisabledAtEnd(typeId: string): Promise<void> {
     const siblings = await this.findSiblings(typeId);
-    const enabled = siblings
-      .filter((item) => item.status === 1)
-      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
-    const disabled = siblings
-      .filter((item) => item.status === 0)
-      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
-    const orderedIds = [...enabled, ...disabled].map((item) => item.id);
+    const orderedIds = this.buildOrderEnabledFirst(siblings);
 
     if (orderedIds.length === 0) {
       return;
@@ -466,18 +496,16 @@ export class DetailsService implements OnModuleInit {
     await this.prisma.$transaction(this.buildOrderUpdateOps(orderedIds));
   }
 
-  /** 同分类下按 restoreIndex 恢复排序 */
-  private async reorderDetailsByRestoreIndex(typeId: string): Promise<void> {
+  /** 同分类下批量启用后按 restoreIndex 恢复排序（启用在前、废弃在后） */
+  private async reorderDetailsAfterBulkEnable(typeId: string): Promise<void> {
     const siblings = await this.findSiblings(typeId);
-    const sorted = [...siblings].sort(
-      (a, b) =>
-        (a.restoreIndex ?? a.orderIndex) - (b.restoreIndex ?? b.orderIndex) ||
-        a.id.localeCompare(b.id),
-    );
+    const orderedIds = this.buildOrderAfterBulkEnable(siblings);
 
-    await this.prisma.$transaction(
-      this.buildOrderUpdateOps(sorted.map((item) => item.id)),
-    );
+    if (orderedIds.length === 0) {
+      return;
+    }
+
+    await this.prisma.$transaction(this.buildOrderUpdateOps(orderedIds));
   }
 
   /** 按分类 id 批量废弃明细（分类废弃级联调用） */
@@ -488,29 +516,36 @@ export class DetailsService implements OnModuleInit {
 
     const enabledDetails = await this.prisma.details.findMany({
       where: { typeId: { in: typeIds }, status: 1 },
-      select: detailsSelect,
+      select: detailsSelect
     });
 
     if (enabledDetails.length === 0) {
       return;
     }
 
-    const operations: Prisma.PrismaPromise<unknown>[] = enabledDetails.map(
-      (detail) =>
+    const operations: Prisma.PrismaPromise<unknown>[] = [];
+
+    for (const detail of enabledDetails) {
+      const siblings = await this.findSiblings(detail.typeId);
+      const savedIndex = this.getEnabledIndexAmongSiblings(siblings, detail.id);
+      operations.push(
         this.prisma.details.update({
           where: { id: detail.id },
           data: {
-            restoreIndex: detail.orderIndex,
-            status: 0,
-          },
-        }),
-    );
+            restoreIndex: savedIndex,
+            status: 0
+          }
+        })
+      );
+    }
+
+    if (operations.length === 0) {
+      return;
+    }
 
     await this.prisma.$transaction(operations);
 
-    const affectedTypeIds = [
-      ...new Set(enabledDetails.map((item) => item.typeId)),
-    ];
+    const affectedTypeIds = [...new Set(enabledDetails.map((item) => item.typeId))];
     for (const typeId of affectedTypeIds) {
       await this.reorderDetailsWithDisabledAtEnd(typeId);
     }
@@ -523,7 +558,7 @@ export class DetailsService implements OnModuleInit {
     }
 
     const disabledCount = await this.prisma.details.count({
-      where: { typeId: { in: typeIds }, status: 0 },
+      where: { typeId: { in: typeIds }, status: 0 }
     });
 
     if (disabledCount === 0) {
@@ -532,17 +567,17 @@ export class DetailsService implements OnModuleInit {
 
     await this.prisma.details.updateMany({
       where: { typeId: { in: typeIds }, status: 0 },
-      data: { status: 1 },
+      data: { status: 1 }
     });
 
     const affectedRows = await this.prisma.details.findMany({
       where: { typeId: { in: typeIds } },
       select: { typeId: true },
-      distinct: ['typeId'],
+      distinct: ['typeId']
     });
 
     for (const row of affectedRows) {
-      await this.reorderDetailsByRestoreIndex(row.typeId);
+      await this.reorderDetailsAfterBulkEnable(row.typeId);
     }
   }
 }
