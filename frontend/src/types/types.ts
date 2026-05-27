@@ -7,6 +7,7 @@ export type TypesStatusLabel = '废弃' | '启用';
 /** 分类维护表格行 */
 export interface TypesEditRow {
   id: string;
+  versionId: string | null;
   parentId: string | null;
   code: string;
   name: string;
@@ -21,16 +22,20 @@ export interface TypesEditRow {
 /** 后端分类记录 */
 export interface TypesRecord {
   id: string;
+  versionId: string | null;
   parentId: string | null;
   code: string;
   name: string;
   note: string;
   index: number;
   status: TypesStatus;
+  /** 废弃前同级排序位置，启用时恢复 */
+  restoreIndex?: number | null;
 }
 
 /** 新增分类请求体 */
 export interface CreateTypesPayload {
+  versionId: string;
   parentId?: string | null;
   code: string;
   name: string;

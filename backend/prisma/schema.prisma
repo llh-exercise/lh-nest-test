@@ -25,6 +25,8 @@ model Version {
 model Types {
   /// 唯一标识
   id         String  @id
+  /// 关联版本标识（逻辑外键）
+  versionId  String?
   /// 父级标识
   parentId   String?
   /// 编码
@@ -37,6 +39,36 @@ model Types {
   orderIndex Int     @default(0) @map("index")
   /// 状态：0 废弃，1 启用
   status     Int     @default(1)
+  /// 废弃前同级排序位置，启用时恢复
+  restoreIndex Int?
 
   @@map("types")
+}
+
+/// 明细表
+model Details {
+  /// 唯一标识
+  id           String  @id
+  /// 关联分类标识（逻辑外键）
+  typeId       String
+  /// 编码
+  code         String
+  /// 项目名称
+  projectName  String
+  /// 工作内容
+  workContent  String  @default("")
+  /// 乙方承包商
+  contractor   String  @default("")
+  /// 计算规则
+  calcRule     String  @default("")
+  /// 计量单位
+  unit         String  @default("")
+  /// 排序序号
+  orderIndex   Int     @default(0) @map("index")
+  /// 状态：0 废弃，1 启用
+  status       Int     @default(1)
+  /// 废弃前同级排序位置，启用时恢复
+  restoreIndex Int?
+
+  @@map("details")
 }

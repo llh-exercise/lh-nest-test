@@ -1,6 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CreateTypesDto } from './dto/create-types.dto';
+import { QueryTypesDto } from './dto/query-types.dto';
 import { UpdateTypesDto } from './dto/update-types.dto';
 import { TypesService, type TypesRecord } from './types.service';
 
@@ -17,8 +18,8 @@ export class TypesController {
 
   @Get()
   @ApiOperation({ summary: '获取分类列表' })
-  findAll(): Promise<TypesRecord[]> {
-    return this.typesService.findAll();
+  findAll(@Query() query: QueryTypesDto): Promise<TypesRecord[]> {
+    return this.typesService.findAll(query.versionId);
   }
 
   @Put(':id')

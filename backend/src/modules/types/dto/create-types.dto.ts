@@ -18,6 +18,12 @@ export class CreateTypesDataDto {
   @MaxLength(50)
   parentId?: string | null;
 
+  @ApiProperty({ description: '关联版本标识（逻辑外键）' })
+  @IsString()
+  @IsNotEmpty({ message: '版本标识不能为空' })
+  @MaxLength(50)
+  versionId!: string;
+
   @ApiProperty({ description: '编码' })
   @IsString()
   @IsNotEmpty({ message: '编码不能为空' })

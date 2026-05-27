@@ -8,6 +8,7 @@
         placeholder="请选择版本"
         clearable
         :loading="versionLoading"
+        @change="handleVersionChange"
       >
         <el-option
           v-for="item in versionOptions"
@@ -27,13 +28,17 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { storeToRefs } from 'pinia';
 import { fetchVersionList } from '@/api/version';
+import { useVersionStore } from '@/stores/version';
 import type { VersionOption, VersionRecord } from '@/types/version';
 import VersionEditDialog from './editDialog.vue';
 
+const versionStore = useVersionStore();
+const { selectedVersionId } = storeToRefs(versionStore);
+
 const editDialogVisible = ref(false);
 const versionLoading = ref(false);
-const selectedVersionId = ref<string>('');
 const versionOptions = ref<VersionOption[]>([]);
 
 function openEditDialog(): void {
@@ -43,8 +48,24 @@ function openEditDialog(): void {
 function handleDialogClose(changed: boolean): void {
   editDialogVisible.value = false;
   if (changed) {
-    void loadVersionList();
+    void loadVersionList('refresh');
   }
+}
+
+/** 版本下拉变更时同步到 Pinia */
+function handleVersionChange(value: string | null | undefined): void {
+  versionStore.setSelectedVersionId(value ?? '');
+}
+
+/** 优先取第一个启用版本，否则取列表第一项 */
+function pickDefaultVersionId(list: VersionRecord[]): string {
+  const enabled = list.find((item) => item.status === 1);
+  return enabled?.id ?? list[0]?.id ?? '';
+}
+
+/** 应用默认选中逻辑 */
+function applyDefaultVersionSelection(list: VersionRecord[]): void {
+  versionStore.setSelectedVersionId(pickDefaultVersionId(list));
 }
 
 function syncVersionOptions(list: VersionRecord[]): void {
@@ -52,26 +73,30 @@ function syncVersionOptions(list: VersionRecord[]): void {
     id: item.id,
     label: item.name,
   }));
-  if (
-    selectedVersionId.value &&
-    !list.some((item) => item.id === selectedVersionId.value)
-  ) {
-    selectedVersionId.value = '';
-  }
 }
 
-async function loadVersionList(): Promise<void> {
+async function loadVersionList(mode: 'init' | 'refresh' = 'refresh'): Promise<void> {
   versionLoading.value = true;
   try {
     const list = await fetchVersionList();
     syncVersionOptions(list);
+
+    if (mode === 'init') {
+      applyDefaultVersionSelection(list);
+      return;
+    }
+
+    const stillExists = list.some((item) => item.id === selectedVersionId.value);
+    if (!stillExists) {
+      applyDefaultVersionSelection(list);
+    }
   } finally {
     versionLoading.value = false;
   }
 }
 
 onMounted(() => {
-  void loadVersionList();
+  void loadVersionList('init');
 });
 </script>
 

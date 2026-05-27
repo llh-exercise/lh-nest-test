@@ -49,6 +49,7 @@ export function typesStatusLabelToNumber(
 export function recordToEditRow(record: TypesRecord): TypesEditRow {
   return applyRowLabel({
     id: record.id,
+    versionId: record.versionId,
     parentId: record.parentId,
     code: record.code,
     name: record.name,
@@ -67,7 +68,11 @@ export function isTempTypesRow(row: TypesEditRow): boolean {
 
 /** 表格行转新增请求体 */
 export function editRowToCreatePayload(row: TypesEditRow): CreateTypesPayload {
+  if (!row.versionId) {
+    throw new Error('缺少关联版本标识');
+  }
   return {
+    versionId: row.versionId,
     parentId: row.parentId,
     code: row.code.trim(),
     name: row.name.trim(),
@@ -90,8 +95,10 @@ export function editRowToUpdatePayload(row: TypesEditRow): UpdateTypesPayload {
 }
 
 /** 获取分类列表（GET /types） */
-export function fetchTypesList(): Promise<TypesRecord[]> {
-  return request.get('/types') as Promise<TypesRecord[]>;
+export function fetchTypesList(versionId: string): Promise<TypesRecord[]> {
+  return request.get('/types', {
+    params: { versionId },
+  }) as Promise<TypesRecord[]>;
 }
 
 /** 新增分类（POST /types） */
