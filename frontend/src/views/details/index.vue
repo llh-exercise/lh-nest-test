@@ -46,7 +46,8 @@ import {
 import { useTypesStore } from '@/stores/types';
 
 const typesStore = useTypesStore();
-const { selectedTypeId, selectedTypeIsLeaf } = storeToRefs(typesStore);
+const { selectedTypeId, selectedTypeIsLeaf, selectedTypeIsSaved, selectedTypeIsEnabled, selectedTypeIsAll, detailsRefreshSeed } =
+  storeToRefs(typesStore);
 
 const gridRef = ref<VxeGridInstance<DetailsEditRow> | null>(null);
 const loading = ref(false);
@@ -73,9 +74,14 @@ interface GridEditCellResult {
   row?: DetailsEditRow;
 }
 
-/** 新增按钮是否禁用：未选中末级分类时禁用 */
+/** 新增按钮是否禁用：全部行、未选中已保存且启用的末级分类时禁用 */
 const addDisabled = computed(
-  () => !selectedTypeId.value || !selectedTypeIsLeaf.value,
+  () =>
+    selectedTypeIsAll.value ||
+    !selectedTypeId.value ||
+    !selectedTypeIsLeaf.value ||
+    !selectedTypeIsSaved.value ||
+    !selectedTypeIsEnabled.value,
 );
 
 
@@ -168,24 +174,31 @@ const gridOptions = reactive<VxeGridProps<DetailsEditRow>>({
           { code: 'delete', name: '删除' },
           { code: 'up', name: '上移' },
           { code: 'down', name: '下移' },
-          { code: 'invalid', name: '废除' },
+          { code: 'invalid', name: '废弃' },
           { code: 'enable', name: '启用' },
         ],
       ],
     },
-    /** 根据当前行动态控制右键菜单项显示 */
-    visibleMethod({ row, options }) {
+    /** 根据当前行动态控制右键菜单项显示（须放在 menuConfig 顶层） */
+    visibleMethod({ row, rowIndex, options }) {
       if (!options || !row) {
-        return true;
+        return false;
       }
 
-      const menuRow = resolveRowFromData(row) ?? row;
-      const siblings = getSiblingRows(menuRow);
-      const siblingIndex = siblings.findIndex((item) => item.id === menuRow.id);
+      const menuRow = resolveMenuContextRow(row, rowIndex);
+      if (!menuRow) {
+        return false;
+      }
+
+      const isAllMode = selectedTypeIsAll.value;
+      const displayRows = getMenuDisplayRows();
+      const siblingIndex = displayRows.findIndex((item) => item.id === menuRow.id);
       const canMove =
-        !isTempDetailsRow(menuRow) && siblingIndex >= 0;
+        !isAllMode &&
+        !isTempDetailsRow(menuRow) &&
+        siblingIndex >= 0;
       const canMoveUp = canMove && siblingIndex > 0;
-      const canMoveDown = canMove && siblingIndex < siblings.length - 1;
+      const canMoveDown = canMove && siblingIndex < displayRows.length - 1;
 
       for (const group of options) {
         for (const item of group) {
@@ -195,10 +208,14 @@ const gridOptions = reactive<VxeGridProps<DetailsEditRow>>({
             item.visible = canMoveDown;
           } else if (item.code === 'invalid') {
             item.visible =
-              !isTempDetailsRow(menuRow) && menuRow.status === 1;
+              !isAllMode &&
+              !isTempDetailsRow(menuRow) &&
+              menuRow.status === 1;
           } else if (item.code === 'enable') {
             item.visible =
-              !isTempDetailsRow(menuRow) && menuRow.status === 0;
+              !isAllMode &&
+              !isTempDetailsRow(menuRow) &&
+              menuRow.status === 0;
           } else {
             item.visible = true;
           }
@@ -276,12 +293,50 @@ function getOperatingRow(): DetailsEditRow | null {
   return selectedRow.value;
 }
 
-/** 解析右键菜单目标行：事件行 > 缓存行 > 当前操作行 */
+/** 获取表格当前展示行（用于右键菜单，反映 moveRowTo 后的视觉顺序） */
+function getMenuDisplayRows(): DetailsEditRow[] {
+  const grid = gridRef.value;
+  const fullData = (
+    grid?.getTableData?.().fullData ?? gridOptions.data ?? []
+  ) as DetailsEditRow[];
+
+  return fullData.filter((item) => !isTempDetailsRow(item));
+}
+
+/** 按视觉行号解析右键目标行（moveRowTo 后 row 引用可能错位，以 rowIndex 为准） */
+function resolveMenuContextRow(
+  row?: DetailsEditRow | null,
+  rowIndex?: number,
+): DetailsEditRow | null {
+  const displayRows = getMenuDisplayRows();
+  if (
+    rowIndex !== undefined &&
+    rowIndex >= 0 &&
+    rowIndex < displayRows.length
+  ) {
+    const displayRow = displayRows[rowIndex];
+    return findRowInData(displayRow.id) ?? displayRow;
+  }
+
+  return resolveRowFromData(row) ?? row ?? null;
+}
+
+/** 解析右键菜单目标行：缓存行 > 事件行 > 当前操作行 */
 function resolveMenuRow(row?: DetailsEditRow | null): DetailsEditRow | null {
   return (
-    resolveRowFromData(row) ??
     resolveRowFromData(contextMenuRow.value) ??
+    resolveMenuContextRow(row) ??
     getOperatingRow()
+  );
+}
+
+/** 解析上移/下移操作行（优先使用 cellMenu 缓存） */
+function resolveMoveRow(row?: DetailsEditRow | null): DetailsEditRow | null {
+  return (
+    resolveRowFromData(contextMenuRow.value) ??
+    resolveRowFromData(row) ??
+    row ??
+    null
   );
 }
 
@@ -333,29 +388,26 @@ function createEmptyRow(typeId: string): DetailsEditRow {
 
 
 
-/** 校验是否已选中末级分类 */
-function assertSelectedType(): boolean {
-  if (!selectedTypeId.value) {
-    ElMessage.warning('请先在左侧选择分类');
-    return false;
-  }
-  if (!selectedTypeIsLeaf.value) {
-    ElMessage.warning('仅末级分类可新增明细');
-    return false;
-  }
-  return true;
+/** 新增明细（按钮 disabled 已保证选中条件） */
+async function handleAdd(): Promise<void> {
+  const row = createEmptyRow(selectedTypeId.value);
+  tableData.value = [...tableData.value, row];
+  applyTableFilter();
+  await focusEditRow(row, 'code');
 }
 
 /** 从后端加载明细列表并刷新表格 */
 async function loadTableData(): Promise<void> {
   loading.value = true;
   try {
-    if (!selectedTypeId.value) {
+    if (!selectedTypeIsAll.value && !selectedTypeId.value) {
       tableData.value = [];
       applyTableFilter();
       return;
     }
-    const list = await fetchDetailsList(selectedTypeId.value);
+    const list = await fetchDetailsList(
+      selectedTypeIsAll.value ? undefined : selectedTypeId.value,
+    );
     tableData.value = list.map((item) => recordToEditRow(item));
     applyTableFilter();
   } finally {
@@ -371,20 +423,25 @@ async function reloadTableAfterFailure(): Promise<void> {
   selectedRow.value = getOperatingRow();
 }
 
-/** 校验明细行必填字段 */
+/** 校验明细行必填字段，一次性提示所有未填项 */
 function validateRow(row: DetailsEditRow): boolean {
+  const errors: string[] = [];
+
   if (!row.code.trim()) {
-    ElMessage.warning('编码不能为空');
-    return false;
+    errors.push('编码不能为空');
   }
   if (!row.projectName.trim()) {
-    ElMessage.warning('项目名称不能为空');
-    return false;
+    errors.push('项目名称不能为空');
   }
   if (!row.unit.trim()) {
-    ElMessage.warning('计量单位不能为空');
+    errors.push('计量单位不能为空');
+  }
+
+  if (errors.length > 0) {
+    ElMessage.warning(errors.join('；'));
     return false;
   }
+
   return true;
 }
 
@@ -438,11 +495,13 @@ async function saveDetailsRowLocal(row: DetailsEditRow): Promise<void> {
     const record = await saveDetailsRow(row);
     if (wasTemp) {
       await syncRowAfterSave(row, record);
+      ElMessage.success('新增成功');
       return;
     }
     Object.assign(row, recordToEditRow(record));
     applyTableFilter();
     selectedRow.value = resolveRowFromData(row);
+    ElMessage.success('保存成功');
   } catch {
     await reloadTableAfterFailure();
   }
@@ -489,17 +548,6 @@ function removeRowFromTable(rowId: string): void {
   editingFieldRowId.value = null;
 }
 
-/** 新增明细 */
-async function handleAdd(): Promise<void> {
-  if (!assertSelectedType()) {
-    return;
-  }
-  const row = createEmptyRow(selectedTypeId.value);
-  tableData.value = [...tableData.value, row];
-  applyTableFilter();
-  await focusEditRow(row, 'code');
-}
-
 /** 删除明细（右键菜单），未保存行仅前端移除 */
 async function handleDelete(row?: DetailsEditRow): Promise<void> {
   const currentRow = row ?? getOperatingRow();
@@ -543,41 +591,101 @@ async function handleDelete(row?: DetailsEditRow): Promise<void> {
 
 
 
-/** 表格内上移一行 */
+/** 将后端记录同步到 tableData（按 id 匹配，保证 index 与菜单计算一致） */
+function applyRecordsToTableData(...records: DetailsRecord[]): void {
+  for (const record of records) {
+    const matched = findRowInData(record.id);
+    if (matched) {
+      Object.assign(matched, recordToEditRow(record));
+    }
+  }
+}
+
+/** 按 index 重排全量数据，保持 tableData 顺序与排序字段一致 */
+function refreshTableDataOrder(): void {
+  tableData.value = [...tableData.value].sort((a, b) => {
+    if (isTempDetailsRow(a) !== isTempDetailsRow(b)) {
+      return isTempDetailsRow(a) ? 1 : -1;
+    }
+    return a.index - b.index || a.id.localeCompare(b.id);
+  });
+}
+
+/** 表格内上移一行（即时更新视图） */
 function modePrevRow(row: DetailsEditRow): void {
   gridRef.value?.moveRowTo(row, -1);
 }
 
-/** 表格内下移一行 */
+/** 表格内下移一行（即时更新视图） */
 function modeNextRow(row: DetailsEditRow): void {
   gridRef.value?.moveRowTo(row, 1);
 }
 
-/** 获取同级已保存明细（按 index 升序） */
+/** 获取同级已保存明细（按 index 升序，用于上移/下移交换） */
 function getSiblingRows(_row: DetailsEditRow): DetailsEditRow[] {
   return tableData.value
     .filter((item) => !isTempDetailsRow(item))
     .sort((a, b) => a.index - b.index || a.id.localeCompare(b.id));
 }
 
-/** 上移明细：与上一个同级交换 index */
-async function handleMoveUp(row: DetailsEditRow): Promise<void> {
-  if (isTempDetailsRow(row)) {
-    ElMessage.warning('请先保存明细后再移动');
+/** 获取表格当前展示行（用于 moveRowTo，须使用表格内部行引用） */
+function findGridRowById(rowId: string): DetailsEditRow | null {
+  const displayRow = getMenuDisplayRows().find((item) => item.id === rowId);
+  if (displayRow) {
+    return displayRow;
+  }
+  return findRowInData(rowId);
+}
+
+/** 移动完成后同步选中状态 */
+async function finalizeMoveSelection(movedRowId: string): Promise<void> {
+  const matched = findRowInData(movedRowId);
+  if (!matched) {
     return;
   }
 
-  const siblings = getSiblingRows(row);
-  const currentIndex = siblings.findIndex((item) => item.id === row.id);
+  selectedRow.value = matched;
+  contextMenuRow.value = matched;
+  await focusCurrentRow(matched);
+}
+
+/** 上移明细：与上一个同级交换 index */
+async function handleMoveUp(row: DetailsEditRow): Promise<void> {
+  if (selectedTypeIsAll.value) {
+    return;
+  }
+  const menuRow = resolveMoveRow(row);
+  if (!menuRow || isTempDetailsRow(menuRow)) {
+    if (menuRow) {
+      ElMessage.warning('请先保存明细后再移动');
+    }
+    return;
+  }
+
+  const siblings = getSiblingRows(menuRow);
+  const currentIndex = siblings.findIndex((item) => item.id === menuRow.id);
   if (currentIndex <= 0) {
     return;
   }
 
   const prevRow = siblings[currentIndex - 1];
+  const sourceRow = findRowInData(menuRow.id) ?? menuRow;
+  const targetRow = findRowInData(prevRow.id) ?? prevRow;
+
   try {
-    await swapDetailsIndex(row, prevRow);
-    modePrevRow(row);
-    await focusCurrentRow(row);
+    const { sourceRecord, targetRecord } = await swapDetailsIndex(
+      sourceRow,
+      targetRow,
+    );
+    applyRecordsToTableData(sourceRecord, targetRecord);
+    refreshTableDataOrder();
+
+    const gridRow = findGridRowById(menuRow.id);
+    if (gridRow) {
+      modePrevRow(gridRow);
+    }
+
+    await finalizeMoveSelection(menuRow.id);
     ElMessage.success('上移成功');
   } catch {
     await reloadTableAfterFailure();
@@ -586,22 +694,41 @@ async function handleMoveUp(row: DetailsEditRow): Promise<void> {
 
 /** 下移明细：与下一个同级交换 index */
 async function handleMoveDown(row: DetailsEditRow): Promise<void> {
-  if (isTempDetailsRow(row)) {
-    ElMessage.warning('请先保存明细后再移动');
+  if (selectedTypeIsAll.value) {
+    return;
+  }
+  const menuRow = resolveMoveRow(row);
+  if (!menuRow || isTempDetailsRow(menuRow)) {
+    if (menuRow) {
+      ElMessage.warning('请先保存明细后再移动');
+    }
     return;
   }
 
-  const siblings = getSiblingRows(row);
-  const currentIndex = siblings.findIndex((item) => item.id === row.id);
+  const siblings = getSiblingRows(menuRow);
+  const currentIndex = siblings.findIndex((item) => item.id === menuRow.id);
   if (currentIndex < 0 || currentIndex >= siblings.length - 1) {
     return;
   }
 
   const nextRow = siblings[currentIndex + 1];
+  const sourceRow = findRowInData(menuRow.id) ?? menuRow;
+  const targetRow = findRowInData(nextRow.id) ?? nextRow;
+
   try {
-    await swapDetailsIndex(row, nextRow);
-    modeNextRow(row);
-    await focusCurrentRow(row);
+    const { sourceRecord, targetRecord } = await swapDetailsIndex(
+      sourceRow,
+      targetRow,
+    );
+    applyRecordsToTableData(sourceRecord, targetRecord);
+    refreshTableDataOrder();
+
+    const gridRow = findGridRowById(menuRow.id);
+    if (gridRow) {
+      modeNextRow(gridRow);
+    }
+
+    await finalizeMoveSelection(menuRow.id);
     ElMessage.success('下移成功');
   } catch {
     await reloadTableAfterFailure();
@@ -611,8 +738,11 @@ async function handleMoveDown(row: DetailsEditRow): Promise<void> {
 
 
 
-/** 废除明细 */
+/** 废弃明细 */
 async function handleInvalid(row: DetailsEditRow): Promise<void> {
+  if (selectedTypeIsAll.value) {
+    return;
+  }
   if (isTempDetailsRow(row)) {
     ElMessage.warning('请先保存明细后再废弃');
     return;
@@ -639,6 +769,9 @@ async function handleInvalid(row: DetailsEditRow): Promise<void> {
 
 /** 启用明细 */
 async function handleEnable(row: DetailsEditRow): Promise<void> {
+  if (selectedTypeIsAll.value) {
+    return;
+  }
   if (isTempDetailsRow(row)) {
     ElMessage.warning('请先保存明细后再启用');
     return;
@@ -668,9 +801,13 @@ async function handleEnable(row: DetailsEditRow): Promise<void> {
 
 /** 表格事件：右键菜单、行选中、编辑态 */
 const gridEvents: VxeGridListeners<DetailsEditRow> = {
-  /** 右键打开菜单时缓存当前行 */
-  cellMenu({ row }) {
-    contextMenuRow.value = resolveRowFromData(row) ?? row ?? null;
+  /** 右键打开菜单时缓存当前行（按视觉行号解析，避免 moveRowTo 后 row 引用错位） */
+  cellMenu({ row, rowIndex }) {
+    if (!row) {
+      contextMenuRow.value = null;
+      return;
+    }
+    contextMenuRow.value = resolveMenuContextRow(row, rowIndex);
   },
   /** 右键菜单点击，按 menuConfig 的 code 分发 */
   menuClick({ row, menu }) {
@@ -718,7 +855,7 @@ watch(searchKeyword, () => {
 
 /** 选中分类变化时重新加载明细列表 */
 watch(
-  selectedTypeId,
+  [selectedTypeId, selectedTypeIsAll],
   () => {
     searchKeyword.value = '';
     selectedRow.value = null;
@@ -727,6 +864,14 @@ watch(
   },
   { immediate: true },
 );
+
+/** 分类废弃/启用级联变更后刷新当前明细列表 */
+watch(detailsRefreshSeed, () => {
+  if (!selectedTypeId.value && !selectedTypeIsAll.value) {
+    return;
+  }
+  void loadTableData();
+});
 </script>
 
 <style lang="scss" scoped>

@@ -6,7 +6,9 @@ import type {
   TypesStatusLabel,
   UpdateTypesPayload,
 } from '@/types/types';
-import request from './request';
+import request, { getApiCode } from './request';
+
+export { getApiCode };
 
 /** 全部行固定 id，仅前端展示用 */
 const ALL_ROW_ID = '__all__';
@@ -36,13 +38,6 @@ export function buildRowLabel(row: {
 export function applyRowLabel(row: TypesEditRow): TypesEditRow {
   row.label = buildRowLabel(row);
   return row;
-}
-
-/** 将展示文案转为后端状态码 */
-export function typesStatusLabelToNumber(
-  status: TypesStatusLabel,
-): TypesStatus {
-  return status === '启用' ? 1 : 0;
 }
 
 /** 后端记录转表格行 */

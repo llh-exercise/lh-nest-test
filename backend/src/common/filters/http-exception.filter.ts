@@ -7,12 +7,19 @@ import {
 } from '@nestjs/common';
 import { FastifyReply } from 'fastify';
 import { ApiResponse } from '../interfaces/api-response.interface';
+import { ApiBusinessException } from '../exceptions/api-business.exception';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const reply = ctx.getResponse<FastifyReply>();
+
+    if (exception instanceof ApiBusinessException) {
+      const body = exception.getResponse() as ApiResponse<unknown>;
+      void reply.status(200).send(body);
+      return;
+    }
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let msg = '服务器内部错误';

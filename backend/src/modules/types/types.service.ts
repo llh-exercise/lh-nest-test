@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { ApiBusinessException } from '../../common/exceptions/api-business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DetailsService } from '../details/details.service';
 import { CreateTypesDataDto } from './dto/create-types.dto';
@@ -196,7 +197,7 @@ export class TypesService implements OnModuleInit {
     });
 
     if (duplicate) {
-      throw new BadRequestException('分类编码已存在');
+      throw new ApiBusinessException(1, '分类编码已存在');
     }
   }
 
@@ -215,6 +216,10 @@ export class TypesService implements OnModuleInit {
 
     if (!parent) {
       throw new BadRequestException(`父级分类 ${parentId} 不存在`);
+    }
+
+    if (parent.status === 0) {
+      throw new BadRequestException('父级分类已废弃，不能新增下级分类');
     }
 
     if (parent.versionId !== versionId) {
@@ -429,6 +434,7 @@ export class TypesService implements OnModuleInit {
       select: { id: true, parentId: true },
     });
     const descendantIds = this.collectDescendantIds(id, rows);
+    const typeIdsToCascade = [id, ...descendantIds];
     const savedIndex = existing.orderIndex;
     const siblings = await this.findSiblings(
       existing.versionId,
@@ -457,6 +463,7 @@ export class TypesService implements OnModuleInit {
 
     operations.push(...this.buildOrderUpdateOps(orderedIds));
     await this.prisma.$transaction(operations);
+    await this.detailsService.disableByTypeIds(typeIdsToCascade);
 
     const entity = await this.prisma.types.findUnique({
       where: { id },
@@ -491,6 +498,7 @@ export class TypesService implements OnModuleInit {
       select: { id: true, parentId: true },
     });
     const descendantIds = this.collectDescendantIds(id, rows);
+    const typeIdsToCascade = [id, ...descendantIds];
     const restoreIndex = existing.restoreIndex ?? existing.orderIndex;
     const siblings = await this.findSiblings(
       existing.versionId,
@@ -510,6 +518,7 @@ export class TypesService implements OnModuleInit {
       ...this.buildOrderUpdateOps(orderedIds),
     ];
     await this.prisma.$transaction(operations);
+    await this.detailsService.enableByTypeIds(typeIdsToCascade);
 
     const entity = await this.prisma.types.findUnique({
       where: { id },

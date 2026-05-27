@@ -36,6 +36,7 @@ import {
   applyRowLabel,
   deleteTypesRow,
   fetchTypesList,
+  getApiCode,
   isTempTypesRow,
   recordToEditRow,
   saveTypesRow,
@@ -64,13 +65,13 @@ interface GridEditCellResult {
   row?: TypesEditRow;
 }
 
-/** 新增下级按钮是否禁用：未选中行、全部行或选中未保存行时禁用 */
+/** 新增下级按钮是否禁用：未选中行、全部行、未保存行或已废弃行时禁用 */
 const addSubDisabled = computed(() => {
   const row = selectedRow.value;
   if (!row || isAllRow(row)) {
     return true;
   }
-  return isTempTypesRow(row);
+  return isTempTypesRow(row) || row.status === 0;
 });
 
 
@@ -151,7 +152,7 @@ const gridOptions = reactive<VxeGridProps<TypesEditRow>>({
           { code: 'delete', name: '删除' },
           { code: 'up', name: '上移' },
           { code: 'down', name: '下移' },
-          { code: 'invalid', name: '废除' },
+          { code: 'invalid', name: '废弃' },
           { code: 'enable', name: '启用' },
         ],
       ],
@@ -180,6 +181,16 @@ const gridOptions = reactive<VxeGridProps<TypesEditRow>>({
             item.visible = canMoveUp;
           } else if (item.code === 'down') {
             item.visible = canMoveDown;
+          } else if (item.code === 'invalid') {
+            item.visible =
+              !isTempTypesRow(menuRow) &&
+              !isAllRow(menuRow) &&
+              menuRow.status === 1;
+          } else if (item.code === 'enable') {
+            item.visible =
+              !isTempTypesRow(menuRow) &&
+              !isAllRow(menuRow) &&
+              menuRow.status === 0;
           } else {
             item.visible = true;
           }
@@ -456,11 +467,15 @@ async function syncRowAfterSave(
     await nextTick();
     grid.setCurrentRow(savedRow);
   }
+  syncSelectedTypeToStore();
   return savedRow;
 }
 
 /** 保存单行分类到后端（新增或更新） */
-async function saveTypesRowLocal(row: TypesEditRow): Promise<void> {
+async function saveTypesRowLocal(
+  row: TypesEditRow,
+  editField?: 'code' | 'name' | 'note',
+): Promise<void> {
   if (isAllRow(row)) {
     return;
   }
@@ -482,7 +497,21 @@ async function saveTypesRowLocal(row: TypesEditRow): Promise<void> {
     }
     Object.assign(row, recordToEditRow(record));
     selectedRow.value = resolveRowFromData(row);
-  } catch {
+    syncSelectedTypeToStore();
+  } catch (error: unknown) {
+    if (getApiCode(error) === 1) {
+      const msg =
+        error instanceof Error ? error.message : '分类编码已存在';
+      ElMessage.warning(msg);
+      const targetRow = resolveRowFromData(row) ?? row;
+      selectedRow.value = targetRow;
+      if (editField) {
+        await focusEditRow(targetRow, editField);
+      } else {
+        await focusCurrentRow(targetRow);
+      }
+      return;
+    }
     await reloadTableAfterFailure();
   }
 }
@@ -497,11 +526,20 @@ function isLeafTypeRow(row: TypesEditRow): boolean {
 /** 同步当前选中分类到 Pinia（供明细模块使用） */
 function syncSelectedTypeToStore(): void {
   const row = selectedRow.value;
-  if (!row || isAllRow(row) || isTempTypesRow(row)) {
+  if (!row) {
     typesStore.clearSelectedTypeId();
     return;
   }
-  typesStore.setSelectedTypeId(row.id, isLeafTypeRow(row));
+  if (isAllRow(row)) {
+    typesStore.setSelectedTypeAll();
+    return;
+  }
+  typesStore.setSelectedTypeId(
+    row.id,
+    isLeafTypeRow(row),
+    !isTempTypesRow(row),
+    row.status === 1,
+  );
 }
 
 /** 当前行变化事件处理 */
@@ -543,7 +581,10 @@ function handleEditClosed(
   if (params.column.field === 'name') {
     applyRowLabel(params.row);
   }
-  void saveTypesRowLocal(params.row);
+  void saveTypesRowLocal(
+    params.row,
+    params.column.field as 'code' | 'name' | 'note',
+  );
 }
 
 
@@ -557,17 +598,14 @@ async function handleAdd(): Promise<void> {
   const row = createEmptyRow(null, selectedVersionId.value);
   gridOptions.data = ensureAllRowFirst([...(gridOptions.data ?? []), row]);
   await focusEditRow(row, 'code');
+  syncSelectedTypeToStore();
 }
 
-/** 新增下级分类 */
+/** 新增下级分类（按钮 disabled 已保证选中条件） */
 async function handleAddSub(): Promise<void> {
   const currentRow = getOperatingRow();
   if (!currentRow) {
     ElMessage.warning('请先选中上级分类');
-    return;
-  }
-  if (isTempTypesRow(currentRow)) {
-    ElMessage.warning('请先保存上级分类后再新增下级');
     return;
   }
   if (!assertSelectedVersion()) {
@@ -576,8 +614,8 @@ async function handleAddSub(): Promise<void> {
 
   const row = createEmptyRow(currentRow.id, selectedVersionId.value);
   gridOptions.data = ensureAllRowFirst([...(gridOptions.data ?? []), row]);
-  syncSelectedTypeToStore();
   await focusEditRow(row, 'code');
+  syncSelectedTypeToStore();
 }
 
 
@@ -756,7 +794,7 @@ async function handleMoveDown(row: TypesEditRow): Promise<void> {
 
 
 
-/** 废除分类：级联废弃子集，保存同级位置并移动到同级末尾 */
+/** 废弃分类：级联废弃子集，保存同级位置并移动到同级末尾 */
 async function handleInvalid(row: TypesEditRow): Promise<void> {
   if (isAllRow(row)) {
     return;
@@ -780,7 +818,9 @@ async function handleInvalid(row: TypesEditRow): Promise<void> {
       selectedRow.value = matched;
       await nextTick();
       gridRef.value?.setCurrentRow(matched);
+      syncSelectedTypeToStore();
     }
+    typesStore.notifyDetailsRefresh();
     ElMessage.success('已废弃');
   } catch {
     await reloadTableAfterFailure();
@@ -811,7 +851,9 @@ async function handleEnable(row: TypesEditRow): Promise<void> {
       selectedRow.value = matched;
       await nextTick();
       gridRef.value?.setCurrentRow(matched);
+      syncSelectedTypeToStore();
     }
+    typesStore.notifyDetailsRefresh();
     ElMessage.success('已启用');
   } catch {
     await reloadTableAfterFailure();
@@ -895,6 +937,7 @@ watch(selectedVersionId, () => {
 
 <style lang="scss" scoped>
 .types-page {
+  padding-top: 12px;
   &__toolbar {
     display: flex;
     align-items: center;

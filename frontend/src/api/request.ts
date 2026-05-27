@@ -12,6 +12,28 @@ export interface ApiResult<T = unknown> {
   msg: string;
 }
 
+export interface ApiError extends Error {
+  apiCode: number;
+}
+
+/** 从请求错误中读取业务 code */
+export function getApiCode(error: unknown): number | null {
+  if (
+    error instanceof Error &&
+    'apiCode' in error &&
+    typeof (error as ApiError).apiCode === 'number'
+  ) {
+    return (error as ApiError).apiCode;
+  }
+  return null;
+}
+
+function createApiError(code: number, msg: string): ApiError {
+  const error = new Error(msg) as ApiError;
+  error.apiCode = code;
+  return error;
+}
+
 const request: AxiosInstance = axios.create({
   baseURL: '/api',
   timeout: 15000,
@@ -34,8 +56,11 @@ request.interceptors.response.use(
     if (code === 0) {
       return data as unknown as AxiosResponse;
     }
+    if (code === 1) {
+      return Promise.reject(createApiError(code, msg || '请求失败'));
+    }
     ElMessage.error(msg || '请求失败');
-    return Promise.reject(new Error(msg));
+    return Promise.reject(createApiError(code, msg || '请求失败'));
   },
   (error: unknown) => {
     if (isAxiosError(error) && error.response?.data) {

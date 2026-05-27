@@ -91,10 +91,10 @@ export function editRowToUpdatePayload(row: DetailsEditRow): UpdateDetailsPayloa
   };
 }
 
-/** 获取明细列表（GET /details） */
-export function fetchDetailsList(typeId: string): Promise<DetailsRecord[]> {
+/** 获取明细列表（GET /details）；不传 typeId 时返回全部明细 */
+export function fetchDetailsList(typeId?: string): Promise<DetailsRecord[]> {
   return request.get('/details', {
-    params: { typeId },
+    params: typeId ? { typeId } : undefined,
   }) as Promise<DetailsRecord[]>;
 }
 
@@ -136,7 +136,7 @@ export function updateDetailsIndex(
 export async function swapDetailsIndex(
   source: DetailsEditRow,
   target: DetailsEditRow,
-): Promise<void> {
+): Promise<{ sourceRecord: DetailsRecord; targetRecord: DetailsRecord }> {
   const sourceIndex = source.index;
   const targetIndex = target.index;
 
@@ -145,6 +145,8 @@ export async function swapDetailsIndex(
 
   Object.assign(source, recordToEditRow(sourceRecord));
   Object.assign(target, recordToEditRow(targetRecord));
+
+  return { sourceRecord, targetRecord };
 }
 
 /** 保存明细：无真实 id 新增，有 id 更新 */

@@ -149,6 +149,10 @@ export class DetailsService implements OnModuleInit {
     if (!type) {
       throw new BadRequestException(`分类 ${typeId} 不存在`);
     }
+
+    if (type.status === 0) {
+      throw new BadRequestException('分类已废弃，不能新增明细');
+    }
   }
 
   /** 校验编码在同一分类内是否重复 */
@@ -442,5 +446,103 @@ export class DetailsService implements OnModuleInit {
     await this.prisma.details.deleteMany({
       where: { typeId: { in: typeIds } },
     });
+  }
+
+  /** 同分类下启用行在前、废弃行在后重排 */
+  private async reorderDetailsWithDisabledAtEnd(typeId: string): Promise<void> {
+    const siblings = await this.findSiblings(typeId);
+    const enabled = siblings
+      .filter((item) => item.status === 1)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    const disabled = siblings
+      .filter((item) => item.status === 0)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id.localeCompare(b.id));
+    const orderedIds = [...enabled, ...disabled].map((item) => item.id);
+
+    if (orderedIds.length === 0) {
+      return;
+    }
+
+    await this.prisma.$transaction(this.buildOrderUpdateOps(orderedIds));
+  }
+
+  /** 同分类下按 restoreIndex 恢复排序 */
+  private async reorderDetailsByRestoreIndex(typeId: string): Promise<void> {
+    const siblings = await this.findSiblings(typeId);
+    const sorted = [...siblings].sort(
+      (a, b) =>
+        (a.restoreIndex ?? a.orderIndex) - (b.restoreIndex ?? b.orderIndex) ||
+        a.id.localeCompare(b.id),
+    );
+
+    await this.prisma.$transaction(
+      this.buildOrderUpdateOps(sorted.map((item) => item.id)),
+    );
+  }
+
+  /** 按分类 id 批量废弃明细（分类废弃级联调用） */
+  async disableByTypeIds(typeIds: string[]): Promise<void> {
+    if (typeIds.length === 0) {
+      return;
+    }
+
+    const enabledDetails = await this.prisma.details.findMany({
+      where: { typeId: { in: typeIds }, status: 1 },
+      select: detailsSelect,
+    });
+
+    if (enabledDetails.length === 0) {
+      return;
+    }
+
+    const operations: Prisma.PrismaPromise<unknown>[] = enabledDetails.map(
+      (detail) =>
+        this.prisma.details.update({
+          where: { id: detail.id },
+          data: {
+            restoreIndex: detail.orderIndex,
+            status: 0,
+          },
+        }),
+    );
+
+    await this.prisma.$transaction(operations);
+
+    const affectedTypeIds = [
+      ...new Set(enabledDetails.map((item) => item.typeId)),
+    ];
+    for (const typeId of affectedTypeIds) {
+      await this.reorderDetailsWithDisabledAtEnd(typeId);
+    }
+  }
+
+  /** 按分类 id 批量启用明细（分类启用级联调用） */
+  async enableByTypeIds(typeIds: string[]): Promise<void> {
+    if (typeIds.length === 0) {
+      return;
+    }
+
+    const disabledCount = await this.prisma.details.count({
+      where: { typeId: { in: typeIds }, status: 0 },
+    });
+
+    if (disabledCount === 0) {
+      return;
+    }
+
+    await this.prisma.details.updateMany({
+      where: { typeId: { in: typeIds }, status: 0 },
+      data: { status: 1 },
+    });
+
+    const affectedRows = await this.prisma.details.findMany({
+      where: { typeId: { in: typeIds } },
+      select: { typeId: true },
+      distinct: ['typeId'],
+    });
+
+    for (const row of affectedRows) {
+      await this.reorderDetailsByRestoreIndex(row.typeId);
+    }
   }
 }
